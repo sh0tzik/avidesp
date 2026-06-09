@@ -34,9 +34,49 @@ local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Функция для округления до целых пикселей (чтобы не было кривизны)
+-- Функция точного округления пикселей
 local function R(num)
     return math.floor(num + 0.5)
+end
+
+-- Безопасный расчет 3D-to-2D Бокса (8 угловых точек)
+local function GetBoundingBox(character)
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    
+    -- Стандартный хитбокс персонажа с запасом под кастомные аксессуары/аксессуары головы
+    local size = Vector3.new(4.3, 6.5, 4.3) 
+    local cframe = hrp.CFrame * CFrame.new(0, 0.4, 0) -- Смещаем чуть вверх, чтобы идеально захватить каски/шляпы
+    
+    local points = {
+        (cframe * CFrame.new(-size.X/2, size.Y/2, -size.Z/2)).Position,
+        (cframe * CFrame.new(size.X/2, size.Y/2, -size.Z/2)).Position,
+        (cframe * CFrame.new(-size.X/2, -size.Y/2, -size.Z/2)).Position,
+        (cframe * CFrame.new(size.X/2, -size.Y/2, -size.Z/2)).Position,
+        (cframe * CFrame.new(-size.X/2, size.Y/2, size.Z/2)).Position,
+        (cframe * CFrame.new(size.X/2, size.Y/2, size.Z/2)).Position,
+        (cframe * CFrame.new(-size.X/2, -size.Y/2, size.Z/2)).Position,
+        (cframe * CFrame.new(size.X/2, -size.Y/2, size.Z/2)).Position,
+    }
+    
+    local minX, minY = math.huge, math.huge
+    local maxX, maxY = -math.huge, -math.huge
+    local anyOnScreen = false
+    
+    for _, point in pairs(points) do
+        local vector, onScreen = Camera:WorldToViewportPoint(point)
+        if vector.Z > 0 then -- Точка находится перед камерой
+            if onScreen then anyOnScreen = true end
+            if vector.X < minX then minX = vector.X end
+            if vector.Y < minY then minY = vector.Y end
+            if vector.X > maxX then maxX = vector.X end
+            if vector.Y > maxY then maxY = vector.Y end
+        end
+    end
+    
+    if not anyOnScreen or minX == math.huge then return nil end
+    
+    return Vector2.new(R(minX), R(minY)), Vector2.new(R(maxX - minX), R(maxY - minY))
 end
 
 local function CreateDrawings()
@@ -52,12 +92,23 @@ local function CreateDrawings()
         Skeleton = {}
     }
     
-    -- Выделяем память под 15 костей (линий) для скелета (хватит и на R15, и на R6)
+    -- Выставляем базовую видимость и непрозрачность по дефолту
+    setrenderproperty(drawings.Box, "Transparency", 1)
+    setrenderproperty(drawings.BoxOuter, "Transparency", 1)
+    setrenderproperty(drawings.BoxInner, "Transparency", 1)
+    setrenderproperty(drawings.HealthBG, "Transparency", 1)
+    setrenderproperty(drawings.HealthBar, "Transparency", 1)
+    setrenderproperty(drawings.HealthText, "Transparency", 1)
+    setrenderproperty(drawings.Name, "Transparency", 1)
+    setrenderproperty(drawings.Weapon, "Transparency", 1)
+
     for i = 1, 15 do
         drawings.Skeleton[i] = {
             Outline = Drawing.new("Line"),
             Inline = Drawing.new("Line")
         }
+        setrenderproperty(drawings.Skeleton[i].Outline, "Transparency", 1)
+        setrenderproperty(drawings.Skeleton[i].Inline, "Transparency", 1)
     end
     
     return drawings
@@ -91,19 +142,15 @@ local function UpdateESP()
             
             if AvidwareESP.Settings.Enabled and character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Humanoid") then
                 local humanoid = character.Humanoid
-                local hrp = character.HumanoidRootPart
                 
                 if humanoid.Health > 0 then
-                    local vector, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                    local boxPos, boxSize = GetBoundingBox(character)
 
-                    if onScreen then
-                        -- Округляем размеры для идеальных пикселей
-                        local sizeX = R(2000 / vector.Z)
-                        local sizeY = R(3000 / vector.Z)
-                        local posX = R(vector.X - sizeX / 2)
-                        local posY = R(vector.Y - sizeY / 2)
+                    if boxPos and boxSize then
+                        local posX, posY = boxPos.X, boxPos.Y
+                        local sizeX, sizeY = boxSize.X, boxSize.Y
 
-                        -- 1. BOX ESP (Идеально ровные линии)
+                        -- 1. BOX ESP (Рендерится по точным координатам углов)
                         if AvidwareESP.Settings.ShowBoxes then
                             setrenderproperty(drawings.BoxOuter, "Size", Vector2.new(sizeX + 2, sizeY + 2))
                             setrenderproperty(drawings.BoxOuter, "Position", Vector2.new(posX - 1, posY - 1))
@@ -119,8 +166,8 @@ local function UpdateESP()
                             setrenderproperty(drawings.BoxInner, "Filled", false)
                             setrenderproperty(drawings.BoxInner, "Visible", true)
 
-                            setrenderproperty(drawings.Box, "Size", Vector2.new(sizeX, sizeY))
-                            setrenderproperty(drawings.Box, "Position", Vector2.new(posX, posY))
+                            setrenderproperty(drawings.Box, "Size", boxSize)
+                            setrenderproperty(drawings.Box, "Position", boxPos)
                             setrenderproperty(drawings.Box, "Color", AvidwareESP.Settings.BoxColor)
                             setrenderproperty(drawings.Box, "Thickness", 1)
                             setrenderproperty(drawings.Box, "Filled", false)
@@ -131,48 +178,36 @@ local function UpdateESP()
                             setrenderproperty(drawings.BoxInner, "Visible", false)
                         end
 
-                        -- 2. SKELETON ESP (Fake Bones для R6 и Real Bones для R15)
+                        -- 2. SKELETON ESP
                         if AvidwareESP.Settings.ShowSkeletons then
                             local bones = {}
                             
                             if humanoid.RigType == Enum.HumanoidRigType.R15 then
-                                -- R15 Кости
                                 local function get(n) local p = character:FindFirstChild(n); return p and p.Position or nil end
-                                local head, uTorso, lTorso = get("Head"), get("UpperTorso"), get("LowerTorso")
-                                local lUArm, lLArm, lHand = get("LeftUpperArm"), get("LeftLowerArm"), get("LeftHand")
-                                local rUArm, rLArm, rHand = get("RightUpperArm"), get("RightLowerArm"), get("RightHand")
-                                local lULeg, lLLeg, lFoot = get("LeftUpperLeg"), get("LeftLowerLeg"), get("LeftFoot")
-                                local rULeg, rLLeg, rFoot = get("RightUpperLeg"), get("RightLowerLeg"), get("RightFoot")
-
                                 bones = {
-                                    {head, uTorso}, {uTorso, lTorso},
-                                    {uTorso, lUArm}, {lUArm, lLArm}, {lLArm, lHand},
-                                    {uTorso, rUArm}, {rUArm, rLArm}, {rLArm, rHand},
-                                    {lTorso, lULeg}, {lULeg, lLLeg}, {lLLeg, lFoot},
-                                    {lTorso, rULeg}, {rULeg, rLLeg}, {rLLeg, rFoot}
+                                    {get("Head"), get("UpperTorso")}, {get("UpperTorso"), get("LowerTorso")},
+                                    {get("UpperTorso"), get("LeftUpperArm")}, {get("LeftUpperArm"), get("LeftLowerArm")}, {get("LeftLowerArm"), get("LeftHand")},
+                                    {get("UpperTorso"), get("RightUpperArm")}, {get("RightUpperArm"), get("RightLowerArm")}, {get("RightLowerArm"), get("RightHand")},
+                                    {get("LowerTorso"), get("LeftUpperLeg")}, {get("LeftUpperLeg"), get("LeftLowerLeg")}, {get("LeftLowerLeg"), get("LeftFoot")},
+                                    {get("LowerTorso"), get("RightUpperLeg")}, {get("RightUpperLeg"), get("RightLowerLeg")}, {get("RightLowerLeg"), get("RightFoot")}
                                 }
                             else
-                                -- R6 Фейковые кости (избегаем Патрика)
+                                -- Фикс костей R6 (Проверяем наличие рук/ног, чтобы не упал скрипт)
                                 local function getCF(n, off) local p = character:FindFirstChild(n); return p and (p.CFrame * off).Position or nil end
-                                local head = getCF("Head", CFrame.new(0, 0, 0))
-                                local spineTop = getCF("Torso", CFrame.new(0, 0.8, 0))
-                                local spineBot = getCF("Torso", CFrame.new(0, -0.8, 0))
-                                local lShoulder = getCF("Left Arm", CFrame.new(0, 0.8, 0))
-                                local rShoulder = getCF("Right Arm", CFrame.new(0, 0.8, 0))
-                                local lHand = getCF("Left Arm", CFrame.new(0, -0.8, 0))
-                                local rHand = getCF("Right Arm", CFrame.new(0, -0.8, 0))
-                                local lHip = getCF("Left Leg", CFrame.new(0, 0.8, 0))
-                                local rHip = getCF("Right Leg", CFrame.new(0, 0.8, 0))
-                                local lFoot = getCF("Left Leg", CFrame.new(0, -0.8, 0))
-                                local rFoot = getCF("Right Leg", CFrame.new(0, -0.8, 0))
-
-                                bones = {
-                                    {head, spineTop}, {spineTop, spineBot},
-                                    {spineTop, lShoulder}, {lShoulder, lHand},
-                                    {spineTop, rShoulder}, {rShoulder, rHand},
-                                    {spineBot, lHip}, {lHip, lFoot},
-                                    {spineBot, rHip}, {rHip, rFoot}
-                                }
+                                if character:FindFirstChild("Torso") and character:FindFirstChild("Head") then
+                                    bones = {
+                                        {getCF("Head", CFrame.new(0, 0, 0)), getCF("Torso", CFrame.new(0, 0.8, 0))},
+                                        {getCF("Torso", CFrame.new(0, 0.8, 0)), getCF("Torso", CFrame.new(0, -0.8, 0))},
+                                        {getCF("Torso", CFrame.new(0, 0.8, 0)), getCF("Left Arm", CFrame.new(0, 0.8, 0))},
+                                        {getCF("Left Arm", CFrame.new(0, 0.8, 0)), getCF("Left Arm", CFrame.new(0, -0.8, 0))},
+                                        {getCF("Torso", CFrame.new(0, 0.8, 0)), getCF("Right Arm", CFrame.new(0, 0.8, 0))},
+                                        {getCF("Right Arm", CFrame.new(0, 0.8, 0)), getCF("Right Arm", CFrame.new(0, -0.8, 0))},
+                                        {getCF("Torso", CFrame.new(0, -0.8, 0)), getCF("Left Leg", CFrame.new(0, 0.8, 0))},
+                                        {getCF("Left Leg", CFrame.new(0, 0.8, 0)), getCF("Left Leg", CFrame.new(0, -0.8, 0))},
+                                        {getCF("Torso", CFrame.new(0, -0.8, 0)), getCF("Right Leg", CFrame.new(0, 0.8, 0))},
+                                        {getCF("Right Leg", CFrame.new(0, 0.8, 0)), getCF("Right Leg", CFrame.new(0, -0.8, 0))}
+                                    }
+                                end
                             end
 
                             for i = 1, 15 do
@@ -185,14 +220,12 @@ local function UpdateESP()
                                         local v1 = Vector2.new(R(p1.X), R(p1.Y))
                                         local v2 = Vector2.new(R(p2.X), R(p2.Y))
 
-                                        -- Аутлайн кости
                                         setrenderproperty(drawings.Skeleton[i].Outline, "From", v1)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "To", v2)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "Color", AvidwareESP.Settings.SkeletonOutlineColor)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "Thickness", 2.5)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "Visible", true)
 
-                                        -- Внутренняя кость
                                         setrenderproperty(drawings.Skeleton[i].Inline, "From", v1)
                                         setrenderproperty(drawings.Skeleton[i].Inline, "To", v2)
                                         setrenderproperty(drawings.Skeleton[i].Inline, "Color", AvidwareESP.Settings.SkeletonColor)
@@ -214,9 +247,7 @@ local function UpdateESP()
                             end
                         end
 
-                        -- HEALTH BAR / TEXT / NAMES / WEAPONS логика остается прежней, 
-                        -- только с использованием округленных R() позиций для идеальной ровности
-
+                        -- 3. HEALTH BAR
                         local healthPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
                         local healthColor = Color3.fromRGB(255, 0, 0):Lerp(Color3.fromRGB(0, 255, 0), healthPercent)
 
@@ -252,6 +283,7 @@ local function UpdateESP()
                             setrenderproperty(drawings.HealthBar, "Visible", false)
                         end
 
+                        -- 4. HEALTH TEXT
                         if AvidwareESP.Settings.ShowHealthText then
                             local hSide = AvidwareESP.Settings.HealthTextSide
                             local textPos
@@ -274,9 +306,13 @@ local function UpdateESP()
                             setrenderproperty(drawings.HealthText, "Visible", false)
                         end
 
+                        -- 5. NAMES
                         if AvidwareESP.Settings.ShowNames then
+                            local hrp2 = character:FindFirstChild("HumanoidRootPart")
+                            local midX = hrp2 and Camera:WorldToViewportPoint(hrp2.Position).X or (posX + sizeX / 2)
+                            
                             setrenderproperty(drawings.Name, "Text", player.Name)
-                            setrenderproperty(drawings.Name, "Position", Vector2.new(R(vector.X), posY - 16))
+                            setrenderproperty(drawings.Name, "Position", Vector2.new(R(midX), posY - 16))
                             setrenderproperty(drawings.Name, "Color", AvidwareESP.Settings.NameColor)
                             setrenderproperty(drawings.Name, "Size", 14)
                             setrenderproperty(drawings.Name, "Center", true)
@@ -286,14 +322,18 @@ local function UpdateESP()
                             setrenderproperty(drawings.Name, "Visible", false)
                         end
 
+                        -- 6. WEAPONS
                         if AvidwareESP.Settings.ShowWeapon then
                             local equippedWeapon = "None"
                             local tool = character:FindFirstChildOfClass("Tool")
                             if tool then equippedWeapon = tool.Name end
+                            
+                            local hrp2 = character:FindFirstChild("HumanoidRootPart")
+                            local midX = hrp2 and Camera:WorldToViewportPoint(hrp2.Position).X or (posX + sizeX / 2)
                             local weaponOffset = (AvidwareESP.Settings.ShowHealthBar and AvidwareESP.Settings.HealthBarSide == "Bottom") and 12 or 4
                             
                             setrenderproperty(drawings.Weapon, "Text", equippedWeapon)
-                            setrenderproperty(drawings.Weapon, "Position", Vector2.new(R(vector.X), posY + sizeY + weaponOffset))
+                            setrenderproperty(drawings.Weapon, "Position", Vector2.new(R(midX), posY + sizeY + weaponOffset))
                             setrenderproperty(drawings.Weapon, "Color", AvidwareESP.Settings.WeaponColor)
                             setrenderproperty(drawings.Weapon, "Size", 13)
                             setrenderproperty(drawings.Weapon, "Center", true)
@@ -320,7 +360,6 @@ table.insert(AvidwareESP.Connections, Players.PlayerRemoving:Connect(function(pl
     if AvidwareESP.Cache[player] then
         for _, drawing in pairs(AvidwareESP.Cache[player]) do
             if type(drawing) == "table" then
-                -- Это массив скелетов
                 for _, bone in pairs(drawing) do
                     bone.Outline:Destroy()
                     bone.Inline:Destroy()
