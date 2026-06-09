@@ -34,19 +34,53 @@ local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
+-- Инициализация и скачивание кастомного шрифта
+local request = request or http_request or (syn and syn.request) or (http and http.request)
+local customFont = Enum.Font.Verdana -- Дефолтный шрифт, если скачивание не удалось
+
+if request and writefile and isfile then
+    local fontFileName = "avidware_esp.ttf"
+    if not isfile(fontFileName) then
+        local success, result = pcall(function()
+            return request({
+                Url = "https://raw.githubusercontent.com/sh0tzik/avidesp/main/esp.ttf",
+                Method = "GET"
+            })
+        end)
+        if success and result.StatusCode == 200 then
+            writefile(fontFileName, result.Body)
+        end
+    end
+    
+    if isfile(fontFileName) then
+        -- Пробуем получить ассет. Если getcustomasset нет, отдаем имя файла напрямую
+        customFont = (getcustomasset and getcustomasset(fontFileName)) or fontFileName
+    end
+end
+
+-- Функция безопасной установки шрифта (чтобы не крашить RenderStepped из-за причуд Drawing API)
+local function SafeSetFont(drawingText, font)
+    local success = pcall(function()
+        setrenderproperty(drawingText, "Font", font)
+    end)
+    if not success then
+        pcall(function()
+            setrenderproperty(drawingText, "Font", Enum.Font.Verdana)
+        end)
+    end
+end
+
 -- Функция точного округления пикселей
 local function R(num)
     return math.floor(num + 0.5)
 end
 
--- Точный расчет 3D-to-2D Бокса (Подгнан под стандартный рост персонажа 5.3 studs)
+-- Точный расчет 3D-to-2D Бокса (Подгнан под рост персонажа 5.3 studs)
 local function GetBoundingBox(character)
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     
-    -- Размеры бокса: ширина 4, высота 5.3, глубина 3.5
     local size = Vector3.new(4, 5.3, 3.5) 
-    -- Опускаем центр на -0.3, чтобы бокс идеально встал на землю под ноги
     local cframe = hrp.CFrame * CFrame.new(0, -0.3, 0) 
     
     local points = {
@@ -93,7 +127,6 @@ local function CreateDrawings()
         Skeleton = {}
     }
     
-    -- Выставляем принудительную непрозрачность (Transparency = 1) для фикса на некоторых экзекуторах
     setrenderproperty(drawings.Box, "Transparency", 1)
     setrenderproperty(drawings.BoxOuter, "Transparency", 1)
     setrenderproperty(drawings.BoxInner, "Transparency", 1)
@@ -193,7 +226,6 @@ local function UpdateESP()
                                     {get("LowerTorso"), get("RightUpperLeg")}, {get("RightUpperLeg"), get("RightLowerLeg")}, {get("RightLowerLeg"), get("RightFoot")}
                                 }
                             else
-                                -- Анатомически правильные фейковые кости для R6
                                 local function getCF(n, off) local p = character:FindFirstChild(n); return p and (p.CFrame * off).Position or nil end
                                 if character:FindFirstChild("Torso") and character:FindFirstChild("Head") then
                                     bones = {
@@ -221,14 +253,12 @@ local function UpdateESP()
                                         local v1 = Vector2.new(R(p1.X), R(p1.Y))
                                         local v2 = Vector2.new(R(p2.X), R(p2.Y))
 
-                                        -- Аутлайн кости
                                         setrenderproperty(drawings.Skeleton[i].Outline, "From", v1)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "To", v2)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "Color", AvidwareESP.Settings.SkeletonOutlineColor)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "Thickness", 2.5)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "Visible", true)
 
-                                        -- Внутренняя линия кости
                                         setrenderproperty(drawings.Skeleton[i].Inline, "From", v1)
                                         setrenderproperty(drawings.Skeleton[i].Inline, "To", v2)
                                         setrenderproperty(drawings.Skeleton[i].Inline, "Color", AvidwareESP.Settings.SkeletonColor)
@@ -302,7 +332,7 @@ local function UpdateESP()
                             setrenderproperty(drawings.HealthText, "Position", textPos)
                             setrenderproperty(drawings.HealthText, "Color", AvidwareESP.Settings.HealthTextColor)
                             setrenderproperty(drawings.HealthText, "Size", 14)
-                            setrenderproperty(drawings.HealthText, "Font", Enum.Font.Verdana) -- Изменено на Verdana
+                            SafeSetFont(drawings.HealthText, customFont) -- Безопасный кастомный шрифт
                             setrenderproperty(drawings.HealthText, "Outline", true)
                             setrenderproperty(drawings.HealthText, "Center", hSide == "Bottom")
                             setrenderproperty(drawings.HealthText, "Visible", true)
@@ -319,7 +349,7 @@ local function UpdateESP()
                             setrenderproperty(drawings.Name, "Position", Vector2.new(R(midX), posY - 16))
                             setrenderproperty(drawings.Name, "Color", AvidwareESP.Settings.NameColor)
                             setrenderproperty(drawings.Name, "Size", 14)
-                            setrenderproperty(drawings.Name, "Font", Enum.Font.Verdana) -- Изменено на Verdana
+                            SafeSetFont(drawings.Name, customFont) -- Безопасный кастомный шрифт
                             setrenderproperty(drawings.Name, "Center", true)
                             setrenderproperty(drawings.Name, "Outline", true)
                             setrenderproperty(drawings.Name, "Visible", true)
@@ -341,7 +371,7 @@ local function UpdateESP()
                             setrenderproperty(drawings.Weapon, "Position", Vector2.new(R(midX), posY + sizeY + weaponOffset))
                             setrenderproperty(drawings.Weapon, "Color", AvidwareESP.Settings.WeaponColor)
                             setrenderproperty(drawings.Weapon, "Size", 13)
-                            setrenderproperty(drawings.Weapon, "Font", Enum.Font.Verdana) -- Изменено на Verdana
+                            SafeSetFont(drawings.Weapon, customFont) -- Безопасный кастомный шрифт
                             setrenderproperty(drawings.Weapon, "Center", true)
                             setrenderproperty(drawings.Weapon, "Outline", true)
                             setrenderproperty(drawings.Weapon, "Visible", true)
