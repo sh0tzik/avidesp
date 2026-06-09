@@ -39,14 +39,15 @@ local function R(num)
     return math.floor(num + 0.5)
 end
 
--- Безопасный расчет 3D-to-2D Бокса (8 угловых точек)
+-- Точный расчет 3D-to-2D Бокса (Подгнан под стандартный рост персонажа 5.3 studs)
 local function GetBoundingBox(character)
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     
-    -- Стандартный хитбокс персонажа с запасом под кастомные аксессуары/аксессуары головы
-    local size = Vector3.new(4.3, 6.5, 4.3) 
-    local cframe = hrp.CFrame * CFrame.new(0, 0.4, 0) -- Смещаем чуть вверх, чтобы идеально захватить каски/шляпы
+    -- Размеры бокса: ширина 4, высота 5.3, глубина 3.5
+    local size = Vector3.new(4, 5.3, 3.5) 
+    -- Опускаем центр на -0.3, чтобы бокс идеально встал на землю под ноги
+    local cframe = hrp.CFrame * CFrame.new(0, -0.3, 0) 
     
     local points = {
         (cframe * CFrame.new(-size.X/2, size.Y/2, -size.Z/2)).Position,
@@ -65,7 +66,7 @@ local function GetBoundingBox(character)
     
     for _, point in pairs(points) do
         local vector, onScreen = Camera:WorldToViewportPoint(point)
-        if vector.Z > 0 then -- Точка находится перед камерой
+        if vector.Z > 0 then
             if onScreen then anyOnScreen = true end
             if vector.X < minX then minX = vector.X end
             if vector.Y < minY then minY = vector.Y end
@@ -92,7 +93,7 @@ local function CreateDrawings()
         Skeleton = {}
     }
     
-    -- Выставляем базовую видимость и непрозрачность по дефолту
+    -- Выставляем принудительную непрозрачность (Transparency = 1) для фикса на некоторых экзекуторах
     setrenderproperty(drawings.Box, "Transparency", 1)
     setrenderproperty(drawings.BoxOuter, "Transparency", 1)
     setrenderproperty(drawings.BoxInner, "Transparency", 1)
@@ -150,7 +151,7 @@ local function UpdateESP()
                         local posX, posY = boxPos.X, boxPos.Y
                         local sizeX, sizeY = boxSize.X, boxSize.Y
 
-                        -- 1. BOX ESP (Рендерится по точным координатам углов)
+                        -- 1. BOX ESP
                         if AvidwareESP.Settings.ShowBoxes then
                             setrenderproperty(drawings.BoxOuter, "Size", Vector2.new(sizeX + 2, sizeY + 2))
                             setrenderproperty(drawings.BoxOuter, "Position", Vector2.new(posX - 1, posY - 1))
@@ -192,7 +193,7 @@ local function UpdateESP()
                                     {get("LowerTorso"), get("RightUpperLeg")}, {get("RightUpperLeg"), get("RightLowerLeg")}, {get("RightLowerLeg"), get("RightFoot")}
                                 }
                             else
-                                -- Фикс костей R6 (Проверяем наличие рук/ног, чтобы не упал скрипт)
+                                -- Анатомически правильные фейковые кости для R6
                                 local function getCF(n, off) local p = character:FindFirstChild(n); return p and (p.CFrame * off).Position or nil end
                                 if character:FindFirstChild("Torso") and character:FindFirstChild("Head") then
                                     bones = {
@@ -220,12 +221,14 @@ local function UpdateESP()
                                         local v1 = Vector2.new(R(p1.X), R(p1.Y))
                                         local v2 = Vector2.new(R(p2.X), R(p2.Y))
 
+                                        -- Аутлайн кости (Толщина 2.5)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "From", v1)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "To", v2)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "Color", AvidwareESP.Settings.SkeletonOutlineColor)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "Thickness", 2.5)
                                         setrenderproperty(drawings.Skeleton[i].Outline, "Visible", true)
 
+                                        -- Внутренняя линия кости (Толщина 1)
                                         setrenderproperty(drawings.Skeleton[i].Inline, "From", v1)
                                         setrenderproperty(drawings.Skeleton[i].Inline, "To", v2)
                                         setrenderproperty(drawings.Skeleton[i].Inline, "Color", AvidwareESP.Settings.SkeletonColor)
