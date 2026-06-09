@@ -34,9 +34,9 @@ local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Инициализация шрифтов. Используем безопасный индекс 0 (стандартный шрифт Drawing), чтобы Potassium не ругался
+-- Инициализация шрифта: строго числовой индекс 0 по дефолту, чтобы не триггерить баг Enum'а в Potassium
+local customFont = 0
 local request = request or http_request or (syn and syn.request) or (http and http.request)
-local customFont = 0 
 
 if request and writefile and isfile then
     local fontFileName = "avidware_esp.ttf"
@@ -53,36 +53,52 @@ if request and writefile and isfile then
     end
     
     if isfile(fontFileName) then
-        customFont = (getcustomasset and getcustomasset(fontFileName)) or fontFileName
+        -- Используем getcustomasset только если он реально существует
+        if getcustomasset then
+            local assetSuccess, assetResult = pcall(function()
+                return getcustomasset(fontFileName)
+            end)
+            if assetSuccess then
+                customFont = assetResult
+            end
+        end
     end
 end
 
--- Безопасная установка шрифта
-local function SafeSetFont(drawingText, font)
+-- Безопасный апдейт свойств текста
+local function ApplyTextProperties(drawingText, text, position, color, size, center)
+    setrenderproperty(drawingText, "Text", text)
+    setrenderproperty(drawingText, "Position", position)
+    setrenderproperty(drawingText, "Color", color)
+    setrenderproperty(drawingText, "Size", size)
+    setrenderproperty(drawingText, "Center", center)
+    setrenderproperty(drawingText, "Outline", true)
+    
+    -- Защищенная установка шрифта
     local success = pcall(function()
-        setrenderproperty(drawingText, "Font", font)
+        setrenderproperty(drawingText, "Font", customFont)
     end)
     if not success then
         pcall(function()
-            setrenderproperty(drawingText, "Font", 0) -- Фоллбек на стандартный Drawing-шрифт
+            setrenderproperty(drawingText, "Font", 0)
         end)
     end
 end
 
--- Функция точного округления пикселей
+-- Точное округление пикселей
 local function R(num)
     return math.floor(num + 0.5)
 end
 
--- Скорректированный расчет 3D-to-2D Бокса под R6 (Подогнано по твоему скриншоту)
+-- Идеальный расчет 3D-to-2D Бокса (Скорректировано под R6 и Potassium)
 local function GetBoundingBox(character)
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     
-    -- Высота 6.0 идеально перекроет и ноги, и голову с кепкой. Ширина 4.2 чуть свободнее для плеч
-    local size = Vector3.new(4.2, 6.0, 3.5) 
-    -- Опускаем центр на -0.75, чтобы нижняя грань бокса ушла с колен строго под подошву ног
-    local cframe = hrp.CFrame * CFrame.new(0, -0.75, 0) 
+    -- Высота 6.2 studs полностью перекрывает тело R6 от подошвы до верха головы/аксессуаров
+    local size = Vector3.new(4.3, 6.2, 3.5) 
+    -- Смещение -0.2 идеально выравнивает бокс по ногам персонажа относительно его HumanoidRootPart
+    local cframe = hrp.CFrame * CFrame.new(0, -0.2, 0) 
     
     local points = {
         (cframe * CFrame.new(-size.X/2, size.Y/2, -size.Z/2)).Position,
@@ -329,13 +345,7 @@ local function UpdateESP()
                                 textPos = Vector2.new(posX + R(sizeX * healthPercent) - 5, posY + sizeY + (AvidwareESP.Settings.ShowHealthBar and 10 or 4))
                             end
 
-                            setrenderproperty(drawings.HealthText, "Text", tostring(math.floor(humanoid.Health)))
-                            setrenderproperty(drawings.HealthText, "Position", textPos)
-                            setrenderproperty(drawings.HealthText, "Color", AvidwareESP.Settings.HealthTextColor)
-                            setrenderproperty(drawings.HealthText, "Size", 14)
-                            SafeSetFont(drawings.HealthText, customFont)
-                            setrenderproperty(drawings.HealthText, "Outline", true)
-                            setrenderproperty(drawings.HealthText, "Center", hSide == "Bottom")
+                            ApplyTextProperties(drawings.HealthText, tostring(math.floor(humanoid.Health)), textPos, AvidwareESP.Settings.HealthTextColor, 14, hSide == "Bottom")
                             setrenderproperty(drawings.HealthText, "Visible", true)
                         else
                             setrenderproperty(drawings.HealthText, "Visible", false)
@@ -346,13 +356,7 @@ local function UpdateESP()
                             local hrp2 = character:FindFirstChild("HumanoidRootPart")
                             local midX = hrp2 and Camera:WorldToViewportPoint(hrp2.Position).X or (posX + sizeX / 2)
                             
-                            setrenderproperty(drawings.Name, "Text", player.Name)
-                            setrenderproperty(drawings.Name, "Position", Vector2.new(R(midX), posY - 16))
-                            setrenderproperty(drawings.Name, "Color", AvidwareESP.Settings.NameColor)
-                            setrenderproperty(drawings.Name, "Size", 14)
-                            SafeSetFont(drawings.Name, customFont)
-                            setrenderproperty(drawings.Name, "Center", true)
-                            setrenderproperty(drawings.Name, "Outline", true)
+                            ApplyTextProperties(drawings.Name, player.Name, Vector2.new(R(midX), posY - 16), AvidwareESP.Settings.NameColor, 14, true)
                             setrenderproperty(drawings.Name, "Visible", true)
                         else
                             setrenderproperty(drawings.Name, "Visible", false)
@@ -368,13 +372,7 @@ local function UpdateESP()
                             local midX = hrp2 and Camera:WorldToViewportPoint(hrp2.Position).X or (posX + sizeX / 2)
                             local weaponOffset = (AvidwareESP.Settings.ShowHealthBar and AvidwareESP.Settings.HealthBarSide == "Bottom") and 12 or 4
                             
-                            setrenderproperty(drawings.Weapon, "Text", equippedWeapon)
-                            setrenderproperty(drawings.Weapon, "Position", Vector2.new(R(midX), posY + sizeY + weaponOffset))
-                            setrenderproperty(drawings.Weapon, "Color", AvidwareESP.Settings.WeaponColor)
-                            setrenderproperty(drawings.Weapon, "Size", 13)
-                            SafeSetFont(drawings.Weapon, customFont)
-                            setrenderproperty(drawings.Weapon, "Center", true)
-                            setrenderproperty(drawings.Weapon, "Outline", true)
+                            ApplyTextProperties(drawings.Weapon, equippedWeapon, Vector2.new(R(midX), posY + sizeY + weaponOffset), AvidwareESP.Settings.WeaponColor, 13, true)
                             setrenderproperty(drawings.Weapon, "Visible", true)
                         else
                             setrenderproperty(drawings.Weapon, "Visible", false)
