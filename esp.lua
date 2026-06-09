@@ -34,9 +34,9 @@ local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Инициализация и скачивание кастомного шрифта
+-- Инициализация шрифтов. Используем безопасный индекс 0 (стандартный шрифт Drawing), чтобы Potassium не ругался
 local request = request or http_request or (syn and syn.request) or (http and http.request)
-local customFont = Enum.Font.Verdana -- Дефолтный шрифт, если скачивание не удалось
+local customFont = 0 
 
 if request and writefile and isfile then
     local fontFileName = "avidware_esp.ttf"
@@ -53,19 +53,18 @@ if request and writefile and isfile then
     end
     
     if isfile(fontFileName) then
-        -- Пробуем получить ассет. Если getcustomasset нет, отдаем имя файла напрямую
         customFont = (getcustomasset and getcustomasset(fontFileName)) or fontFileName
     end
 end
 
--- Функция безопасной установки шрифта (чтобы не крашить RenderStepped из-за причуд Drawing API)
+-- Безопасная установка шрифта
 local function SafeSetFont(drawingText, font)
     local success = pcall(function()
         setrenderproperty(drawingText, "Font", font)
     end)
     if not success then
         pcall(function()
-            setrenderproperty(drawingText, "Font", Enum.Font.Verdana)
+            setrenderproperty(drawingText, "Font", 0) -- Фоллбек на стандартный Drawing-шрифт
         end)
     end
 end
@@ -75,13 +74,15 @@ local function R(num)
     return math.floor(num + 0.5)
 end
 
--- Точный расчет 3D-to-2D Бокса (Подгнан под рост персонажа 5.3 studs)
+-- Скорректированный расчет 3D-to-2D Бокса под R6 (Подогнано по твоему скриншоту)
 local function GetBoundingBox(character)
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
     
-    local size = Vector3.new(4, 5.3, 3.5) 
-    local cframe = hrp.CFrame * CFrame.new(0, -0.3, 0) 
+    -- Высота 6.0 идеально перекроет и ноги, и голову с кепкой. Ширина 4.2 чуть свободнее для плеч
+    local size = Vector3.new(4.2, 6.0, 3.5) 
+    -- Опускаем центр на -0.75, чтобы нижняя грань бокса ушла с колен строго под подошву ног
+    local cframe = hrp.CFrame * CFrame.new(0, -0.75, 0) 
     
     local points = {
         (cframe * CFrame.new(-size.X/2, size.Y/2, -size.Z/2)).Position,
@@ -332,7 +333,7 @@ local function UpdateESP()
                             setrenderproperty(drawings.HealthText, "Position", textPos)
                             setrenderproperty(drawings.HealthText, "Color", AvidwareESP.Settings.HealthTextColor)
                             setrenderproperty(drawings.HealthText, "Size", 14)
-                            SafeSetFont(drawings.HealthText, customFont) -- Безопасный кастомный шрифт
+                            SafeSetFont(drawings.HealthText, customFont)
                             setrenderproperty(drawings.HealthText, "Outline", true)
                             setrenderproperty(drawings.HealthText, "Center", hSide == "Bottom")
                             setrenderproperty(drawings.HealthText, "Visible", true)
@@ -349,7 +350,7 @@ local function UpdateESP()
                             setrenderproperty(drawings.Name, "Position", Vector2.new(R(midX), posY - 16))
                             setrenderproperty(drawings.Name, "Color", AvidwareESP.Settings.NameColor)
                             setrenderproperty(drawings.Name, "Size", 14)
-                            SafeSetFont(drawings.Name, customFont) -- Безопасный кастомный шрифт
+                            SafeSetFont(drawings.Name, customFont)
                             setrenderproperty(drawings.Name, "Center", true)
                             setrenderproperty(drawings.Name, "Outline", true)
                             setrenderproperty(drawings.Name, "Visible", true)
@@ -371,7 +372,7 @@ local function UpdateESP()
                             setrenderproperty(drawings.Weapon, "Position", Vector2.new(R(midX), posY + sizeY + weaponOffset))
                             setrenderproperty(drawings.Weapon, "Color", AvidwareESP.Settings.WeaponColor)
                             setrenderproperty(drawings.Weapon, "Size", 13)
-                            SafeSetFont(drawings.Weapon, customFont) -- Безопасный кастомный шрифт
+                            SafeSetFont(drawings.Weapon, customFont)
                             setrenderproperty(drawings.Weapon, "Center", true)
                             setrenderproperty(drawings.Weapon, "Outline", true)
                             setrenderproperty(drawings.Weapon, "Visible", true)
