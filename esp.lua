@@ -39,7 +39,7 @@ local customFont = 0
 local request = request or http_request or (syn and syn.request) or (http and http.request)
 
 if request and writefile and isfile then
-    local fontFileName = "avidware_esp.ttf"
+    local fontFileName = "esp.ttf"
     if not isfile(fontFileName) then
         local success, result = pcall(function()
             return request({
